@@ -36,19 +36,32 @@ check file: build
 fmt:
     gofmt -w .
 
-# Verify formatting and run go vet
+# Install the tools lint needs
+tools:
+    go install honnef.co/go/tools/cmd/staticcheck@latest
+
+# Verify formatting, vet, and check for deprecated APIs
 lint:
     #!/usr/bin/env bash
     set -euo pipefail
+    # tmp/ is gitignored throwaway probes; it is part of the module but must
+    # not gate anything.
+    targets=(. ./internal/...)
     # gofmt -l exits 0 whether or not it lists anything, so the emptiness of
     # its output is the assertion.
-    unformatted=$(gofmt -l .)
+    unformatted=$(gofmt -l main.go internal)
     if [[ -n "$unformatted" ]]; then
         echo "not gofmt'd:" >&2
         echo "$unformatted" >&2
         exit 1
     fi
-    go vet ./...
+    go vet "${targets[@]}"
+    # go vet does not report deprecated identifiers; staticcheck's SA1019 does.
+    if ! command -v staticcheck >/dev/null 2>&1; then
+        echo "staticcheck missing — run: just tools" >&2
+        exit 1
+    fi
+    staticcheck "${targets[@]}"
 
 # What CI would run, once there is any
 ci: lint test
