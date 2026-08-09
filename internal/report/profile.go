@@ -26,29 +26,67 @@ func WriteProfile(w io.Writer, run *runtime.Run) {
 
 	for _, name := range names {
 		svc := run.Services[name]
-		fmt.Fprintf(w, "  %-*s  ", width, name)
+		fmt.Fprintf(w, "  %-*s  %s\n", width, name, describe(run, svc))
 
-		if !svc.Probeable {
-			// A gated service has no readiness of its own to report, but the
-			// wait it inherited is the point: dead time does not stay on the
-			// service that caused it.
-			if blocked, ok := run.Blocked(name); ok {
-				fmt.Fprintf(w, "blocked %s on %s\n", short(blocked), waitedFor(run, name))
-				continue
-			}
-			fmt.Fprintln(w, "no healthcheck")
-			continue
+		// A crash makes the rest of the row unreliable, so say why underneath
+		// it rather than leaving the reader to go and run `compose logs`.
+		for _, line := range svc.CrashLog {
+			fmt.Fprintf(w, "  %-*s    %s\n", width, "", line)
 		}
-
-		boot, _ := svc.Boot()
-		gap, ok := svc.Gap()
-		if !ok {
-			fmt.Fprintf(w, "ready %s, never declared healthy\n", short(boot))
-			continue
-		}
-		fmt.Fprintf(w, "ready %s   declared healthy %s   %s dead\n",
-			short(boot), short(svc.DeclaredHealthy.Sub(svc.Start)), short(gap))
 	}
+}
+
+// describe is one service's row: what it waited for, then what became of it.
+func describe(run *runtime.Run, svc *runtime.Service) string {
+	var parts []string
+
+	// The wait a gated service inherited is the point of recording the graph:
+	// dead time does not stay on the service that caused it.
+	if blocked, ok := run.Blocked(svc.Name); ok {
+		parts = append(parts, fmt.Sprintf("blocked %s on %s", short(blocked), waitedFor(run, svc.Name)))
+	}
+
+	ran, ranOK := svc.Ran()
+
+	switch svc.Outcome() {
+	case runtime.OutcomeCrashed:
+		parts = append(parts, fmt.Sprintf("exited code %d%s", svc.ExitCode, since(ran, ranOK)))
+
+	case runtime.OutcomeCompleted:
+		parts = append(parts, "completed"+since(ran, ranOK))
+
+	case runtime.OutcomeHealthy:
+		parts = append(parts, healthy(svc))
+
+	case runtime.OutcomeUnhealthy:
+		parts = append(parts, fmt.Sprintf("declared unhealthy after %s",
+			short(svc.DeclaredUnhealthy.Sub(svc.Start))))
+
+	case runtime.OutcomePending:
+		parts = append(parts, "still starting when the run ended")
+
+	case runtime.OutcomeNoReadiness:
+		// A blocked row already says everything known about a service with
+		// nothing of its own to report.
+		if len(parts) == 0 {
+			parts = append(parts, "no healthcheck")
+		}
+	}
+
+	return strings.Join(parts, ", ")
+}
+
+// healthy describes a service the daemon declared ready. The dead time needs
+// both ends; a probe that never succeeded leaves only the daemon's own moment.
+func healthy(svc *runtime.Service) string {
+	declared := short(svc.DeclaredHealthy.Sub(svc.Start))
+
+	gap, ok := svc.Gap()
+	if !ok {
+		return "declared healthy " + declared
+	}
+	boot, _ := svc.Boot()
+	return fmt.Sprintf("ready %s, declared healthy %s, %s dead", short(boot), declared, short(gap))
 }
 
 // short trims durations to something a reader can compare at a glance. The
@@ -69,4 +107,14 @@ func waitedFor(run *runtime.Run, name string) string {
 	}
 	slices.Sort(names)
 	return strings.Join(names, ", ")
+}
+
+// since renders the run-time of a container that has exited. The die event can
+// arrive after the run stops watching, in which case the crash is known but
+// its timing is not.
+func since(d time.Duration, ok bool) string {
+	if !ok {
+		return ""
+	}
+	return " after " + short(d)
 }

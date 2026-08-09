@@ -109,13 +109,13 @@ func newUpCommand() *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
 
+			// A run can fail and still have measured most of the stack, so
+			// print whatever it managed before reporting the failure.
 			run, err := runtime.Observe(ctx, cli, path, project)
-			if err != nil {
-				return err
+			if run != nil {
+				report.WriteProfile(cmd.OutOrStdout(), run)
 			}
-
-			report.WriteProfile(cmd.OutOrStdout(), run)
-			return nil
+			return err
 		},
 	}
 

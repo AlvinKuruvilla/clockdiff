@@ -66,4 +66,5 @@ go install github.com/AlvinKuruvilla/clockdiff@latest
   healthy
 - **v2** — poll each service's own `healthcheck.test` to find when it was
   actually ready. The difference between the two is the headline number
-- **v3** — published-port timing, plus build and pull on the same axis
+- **v3** — when each service starts accepting connections, read from
+  `/proc/net/tcp` inside the container, plus build and pull on the same axis

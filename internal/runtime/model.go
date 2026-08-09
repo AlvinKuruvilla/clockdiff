@@ -18,9 +18,24 @@ type Service struct {
 	// Start is the container's start event.
 	Start time.Time
 
-	// Exited is the container's die event, which is what
-	// service_completed_successfully waits for.
+	// ContainerID is needed after the run to fetch logs for anything that
+	// crashed.
+	ContainerID string
+
+	// Exited is the host clock when the die event arrived, and is set only if
+	// the run was still watching when it did.
 	Exited time.Time
+
+	// Finished records that the container was not running when the run ended,
+	// whether or not its die event was seen.
+	Finished bool
+
+	// CrashLog is the tail of a crashed container's output. Empty unless the
+	// service exited non-zero.
+	CrashLog []string
+
+	// ExitCode is meaningful only once Exited is set.
+	ExitCode int
 
 	// PredicateTrue is when clockdiff's own run of the healthcheck command
 	// first succeeded — when the service actually became ready.
@@ -29,13 +44,18 @@ type Service struct {
 	// DeclaredHealthy is when the daemon said so.
 	DeclaredHealthy time.Time
 
-	// Probeable records whether the container declares a healthcheck this
-	// tool can run. Services without one have no readiness to measure.
-	Probeable bool
+	// DeclaredUnhealthy is when the daemon gave up, after `retries` failures.
+	DeclaredUnhealthy time.Time
+
+	// HasHealthcheck is what the container declares, known as soon as it is
+	// inspected. It is deliberately not "our probe of it succeeded": a
+	// container that crashes has a healthcheck and no successful probe, and
+	// only the declaration says whether an outcome is still owed.
+	HasHealthcheck bool
 
 	// probePending is set between a container starting and its prober
 	// reporting. Without it a service that has only just started looks
-	// finished, because Probeable is still false.
+	// finished, because HasHealthcheck is not known yet and so reads false.
 	probePending bool
 }
 
@@ -57,6 +77,55 @@ func (s *Service) Gap() (time.Duration, bool) {
 // Boot is how long the service took to actually become ready.
 func (s *Service) Boot() (time.Duration, bool) {
 	return measured(s.Start, s.PredicateTrue)
+}
+
+// Ran is how long the container was up before it exited.
+func (s *Service) Ran() (time.Duration, bool) {
+	return measured(s.Start, s.Exited)
+}
+
+// Outcome is how far a service got.
+//
+// Every derived question — did it crash, is it still going, is there anything
+// to measure — resolves to this one value, so the answers cannot contradict
+// each other the way a handful of independent booleans can.
+type Outcome int
+
+const (
+	// OutcomePending is a service that could still reach another outcome.
+	OutcomePending Outcome = iota
+	OutcomeHealthy
+	OutcomeUnhealthy
+	OutcomeCrashed
+	OutcomeCompleted
+
+	// OutcomeNoReadiness is a started service that declares no healthcheck.
+	// Compose treats service_started as satisfied the instant it starts, so
+	// starting is all the readiness there is to have.
+	OutcomeNoReadiness
+)
+
+// Outcome classifies a service. A container declaring a healthcheck has three
+// terminal states — healthy, unhealthy, dead — and stays pending until one of
+// them, which is what lets a run finish on events rather than on a timer.
+func (s *Service) Outcome() Outcome {
+	switch {
+	// A non-zero exit outranks anything the service managed first. A zero
+	// exit is a one-shot doing its job, possibly one that something waits on
+	// with service_completed_successfully.
+	case s.Finished && s.ExitCode != 0:
+		return OutcomeCrashed
+	case s.Finished:
+		return OutcomeCompleted
+	case !s.DeclaredUnhealthy.IsZero():
+		return OutcomeUnhealthy
+	case !s.DeclaredHealthy.IsZero():
+		return OutcomeHealthy
+	case s.Start.IsZero() || s.probePending || s.HasHealthcheck:
+		return OutcomePending
+	default:
+		return OutcomeNoReadiness
+	}
 }
 
 // Run is one observed `docker compose up`.
@@ -134,16 +203,13 @@ func (r *Run) Blocked(name string) (time.Duration, bool) {
 	return measured(svc.Created, svc.Start)
 }
 
-// settled reports whether every service has been measured as far as it can be.
+// settled reports whether every service has reached an outcome.
 func (r *Run) settled() bool {
 	if !r.allStarted {
 		return false
 	}
 	for _, svc := range r.Services {
-		if svc.probePending {
-			return false
-		}
-		if svc.Probeable && (svc.PredicateTrue.IsZero() || svc.DeclaredHealthy.IsZero()) {
+		if svc.Outcome() == OutcomePending {
 			return false
 		}
 	}

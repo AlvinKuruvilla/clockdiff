@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/moby/moby/api/types/events"
@@ -24,12 +25,15 @@ func NewClient() (*client.Client, error) {
 
 // readyResult carries a prober's answer back to the event loop, which is the
 // only goroutine that writes to Run. Exactly one is sent per started
-// container, whether or not it turned out to be probeable, because the loop
+// container, whether or not it turned out to have a healthcheck, because the loop
 // waits on it before deciding the run is over.
 type readyResult struct {
-	service   string
-	probeable bool
-	at        time.Time
+	service        string
+	hasHealthcheck bool
+
+	// at is zero when the probe never succeeded, which a crashing container
+	// guarantees.
+	at time.Time
 }
 
 // Observe brings the stack up and records, per service, when its container
@@ -53,7 +57,10 @@ func Observe(ctx context.Context, cli *client.Client, composeFile, project strin
 		out, err := exec.CommandContext(ctx, "docker", "compose",
 			"-f", composeFile, "-p", project, "up", "-d").CombinedOutput()
 		if err != nil {
-			err = fmt.Errorf("docker compose up -d: %w\n%s", err, out)
+			// CombinedOutput carries the whole progress log; only its tail
+			// says anything about the failure.
+			err = fmt.Errorf("docker compose up -d: %w\n%s", err,
+				strings.Join(lastLines(string(out), 3), "\n"))
 		}
 		composeDone <- err
 	}()
@@ -62,6 +69,7 @@ func Observe(ctx context.Context, cli *client.Client, composeFile, project strin
 
 	for {
 		if run.settled() {
+			resolveExits(ctx, cli, run)
 			return run, nil
 		}
 
@@ -79,7 +87,9 @@ func Observe(ctx context.Context, cli *client.Client, composeFile, project strin
 
 			switch ev.Action {
 			case events.ActionCreate:
-				run.service(name).Created = time.Now()
+				svc := run.service(name)
+				svc.Created = time.Now()
+				svc.ContainerID = ev.Actor.ID
 			case events.ActionStart:
 				svc := run.service(name)
 				svc.Start = time.Now()
@@ -88,23 +98,28 @@ func Observe(ctx context.Context, cli *client.Client, composeFile, project strin
 				go probeService(ctx, cli, ev.Actor.ID, name, ready)
 			case events.ActionHealthStatusHealthy:
 				run.service(name).DeclaredHealthy = time.Now()
+			case events.ActionHealthStatusUnhealthy:
+				run.service(name).DeclaredUnhealthy = time.Now()
 			case events.ActionDie:
-				run.service(name).Exited = time.Now()
+				svc := run.service(name)
+				svc.Exited = time.Now()
+				svc.Finished = true
+				svc.ExitCode, _ = strconv.Atoi(ev.Actor.Attributes["exitCode"])
 			}
 
 		case r := <-ready:
 			svc := run.service(r.service)
 			svc.probePending = false
-			svc.Probeable = r.probeable
-			if r.probeable {
-				svc.PredicateTrue = r.at
-			}
+			svc.HasHealthcheck = r.hasHealthcheck
+			svc.PredicateTrue = r.at
 
 		case err := <-composeDone:
-			// A compose failure otherwise presents as a silent wait until the
-			// context expires.
+			// Return the run alongside the error. A container that fails to
+			// start makes compose exit non-zero, but everything measured up to
+			// that point is still true and still worth printing.
 			if err != nil {
-				return nil, err
+				resolveExits(ctx, cli, run)
+				return run, err
 			}
 			run.allStarted = true
 
@@ -119,7 +134,7 @@ func Observe(ctx context.Context, cli *client.Client, composeFile, project strin
 
 // probeService polls one container's own healthcheck from the moment it
 // starts. Containers with no healthcheck, or an unrecognised test form, have
-// no readiness to measure and report themselves unprobeable.
+// no readiness to measure, and say so.
 //
 // It always sends exactly one result. The event loop counts the run finished
 // only once every started container has reported, so staying silent on a
@@ -141,6 +156,8 @@ func probeService(ctx context.Context, cli *client.Client, containerID, service 
 	if config == nil || config.Healthcheck == nil {
 		return
 	}
+	result.hasHealthcheck = true
+
 	argv := probeArgv(config.Healthcheck.Test)
 	if argv == nil {
 		return
@@ -150,6 +167,5 @@ func probeService(ctx context.Context, cli *client.Client, containerID, service 
 	if err != nil {
 		return
 	}
-	result.probeable = true
 	result.at = at
 }
