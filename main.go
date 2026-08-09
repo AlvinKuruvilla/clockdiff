@@ -1,14 +1,19 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/AlvinKuruvilla/clockdiff/internal/compose"
 	"github.com/AlvinKuruvilla/clockdiff/internal/report"
+	"github.com/AlvinKuruvilla/clockdiff/internal/runtime"
 )
 
 // exitCode carries a process exit status out through cobra's error return, for
@@ -28,14 +33,14 @@ func main() {
 		SilenceErrors: true,
 	}
 	root.AddCommand(newCheckCommand())
+	root.AddCommand(newUpCommand())
 
 	err := root.Execute()
 	if err == nil {
 		return
 	}
 
-	var code exitCode
-	if errors.As(err, &code) {
+	if code, ok := errors.AsType[exitCode](err); ok {
 		os.Exit(int(code))
 	}
 	fmt.Fprintf(os.Stderr, "clockdiff: %v\n", err)
@@ -67,4 +72,57 @@ func newCheckCommand() *cobra.Command {
 			return exitFindings
 		},
 	}
+}
+
+func newUpCommand() *cobra.Command {
+	var (
+		timeout time.Duration
+		project string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "up <compose-file>",
+		Short: "Start the stack and measure where its startup went",
+		Long: "Start the stack and measure where its startup went.\n\n" +
+			"Each service's own healthcheck is run out-of-band from the moment its\n" +
+			"container starts, so readiness is known independently of when Docker\n" +
+			"gets round to noticing it. The difference is dead time.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path := args[0]
+
+			// Compose names a project after the directory holding the file.
+			if project == "" {
+				abs, err := filepath.Abs(path)
+				if err != nil {
+					return err
+				}
+				project = strings.ToLower(filepath.Base(filepath.Dir(abs)))
+			}
+
+			cli, err := runtime.NewClient()
+			if err != nil {
+				return err
+			}
+			defer cli.Close()
+
+			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
+			defer cancel()
+
+			run, err := runtime.Observe(ctx, cli, path, project)
+			if err != nil {
+				return err
+			}
+
+			report.WriteProfile(cmd.OutOrStdout(), run)
+			return nil
+		},
+	}
+
+	cmd.Flags().DurationVar(&timeout, "timeout", 2*time.Minute,
+		"give up if the stack has not settled")
+	cmd.Flags().StringVarP(&project, "project-name", "p", "",
+		"compose project name (default: the compose file's directory)")
+
+	return cmd
 }
