@@ -47,11 +47,16 @@ type Service struct {
 	// DeclaredUnhealthy is when the daemon gave up, after `retries` failures.
 	DeclaredUnhealthy time.Time
 
-	// HasHealthcheck is what the container declares, known as soon as it is
-	// inspected. It is deliberately not "our probe of it succeeded": a
-	// container that crashes has a healthcheck and no successful probe, and
-	// only the declaration says whether an outcome is still owed.
+	// Accepting is the time when a port the container declares first appeared in its
+	// own /proc/net/tcp as LISTEN.
+	Accepting time.Time
+
+	// HasHealthcheck and ExpectsPort are what the container declares, known
+	// as soon as it is inspected. Neither is "we observed it": a container
+	// that crashes declares both and delivers neither, and only the
+	// declaration says whether an outcome is still owed.
 	HasHealthcheck bool
+	ExpectsPort    bool
 
 	// probePending is set between a container starting and its prober
 	// reporting. Without it a service that has only just started looks
@@ -99,9 +104,14 @@ const (
 	OutcomeCrashed
 	OutcomeCompleted
 
-	// OutcomeNoReadiness is a started service that declares no healthcheck.
-	// Compose treats service_started as satisfied the instant it starts, so
-	// starting is all the readiness there is to have.
+	// OutcomeAccepting is a service with no healthcheck that was nonetheless
+	// seen to start listening on a port it declares. Weaker than healthy —
+	// a bound socket is not a served request — but far more than nothing.
+	OutcomeAccepting
+
+	// OutcomeNoReadiness is a started service that declares neither a
+	// healthcheck nor a port. Compose treats service_started as satisfied the
+	// instant it starts, so starting is all the readiness there is to have.
 	OutcomeNoReadiness
 )
 
@@ -123,9 +133,23 @@ func (s *Service) Outcome() Outcome {
 		return OutcomeHealthy
 	case s.Start.IsZero() || s.probePending || s.HasHealthcheck:
 		return OutcomePending
+
+	// A container that exposes a port is asserting it will listen on one, so
+	// that assertion is owed an answer the same way a healthcheck is.
+	case s.ExpectsPort && s.Accepting.IsZero():
+		return OutcomePending
+
+	case !s.Accepting.IsZero():
+		return OutcomeAccepting
+
 	default:
 		return OutcomeNoReadiness
 	}
+}
+
+// Serving is how long the service took to start accepting connections.
+func (s *Service) Serving() (time.Duration, bool) {
+	return measured(s.Start, s.Accepting)
 }
 
 // Run is one observed `docker compose up`.

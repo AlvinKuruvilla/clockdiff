@@ -62,6 +62,10 @@ func describe(run *runtime.Run, svc *runtime.Service) string {
 		parts = append(parts, fmt.Sprintf("declared unhealthy after %s",
 			short(svc.DeclaredUnhealthy.Sub(svc.Start))))
 
+	case runtime.OutcomeAccepting:
+		serving, _ := svc.Serving()
+		parts = append(parts, fmt.Sprintf("accepting connections %s", short(serving)))
+
 	case runtime.OutcomePending:
 		parts = append(parts, "still starting when the run ended")
 
@@ -86,7 +90,14 @@ func healthy(svc *runtime.Service) string {
 		return "declared healthy " + declared
 	}
 	boot, _ := svc.Boot()
-	return fmt.Sprintf("ready %s, declared healthy %s, %s dead", short(boot), declared, short(gap))
+	line := fmt.Sprintf("ready %s, declared healthy %s, %s dead", short(boot), declared, short(gap))
+
+	// The port is the denominator: 4.9s dead means little without knowing the
+	// whole startup it came out of.
+	if serving, ok := svc.Serving(); ok {
+		line += fmt.Sprintf(", accepting %s", short(serving))
+	}
+	return line
 }
 
 // short trims durations to something a reader can compare at a glance. The

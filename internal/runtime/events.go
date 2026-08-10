@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/moby/moby/api/types/events"
@@ -30,10 +31,12 @@ func NewClient() (*client.Client, error) {
 type readyResult struct {
 	service        string
 	hasHealthcheck bool
+	expectsPort    bool
 
-	// at is zero when the probe never succeeded, which a crashing container
-	// guarantees.
-	at time.Time
+	// at and accepting are zero when their track never succeeded, which a
+	// crashing container guarantees for both.
+	at        time.Time
+	accepting time.Time
 }
 
 // Observe brings the stack up and records, per service, when its container
@@ -67,6 +70,9 @@ func Observe(ctx context.Context, cli *client.Client, composeFile, project strin
 
 	ready := make(chan readyResult, 8)
 
+	// Container IDs this run has seen created or started.
+	ours := make(map[string]bool)
+
 	for {
 		if run.settled() {
 			resolveExits(ctx, cli, run)
@@ -84,6 +90,19 @@ func Observe(ctx context.Context, cli *client.Client, composeFile, project strin
 			if name == "" {
 				continue
 			}
+
+			// Since is second-granular, so the daemon replays up to a second
+			// of history — including the teardown of containers a previous
+			// run left behind. Those carry the same service label as the ones
+			// this run creates, so an old container's death would otherwise
+			// land on the new container's record and date its exit before its
+			// start. Only events for a container this run saw appear are
+			// taken.
+			seen := ev.Action == events.ActionCreate || ev.Action == events.ActionStart
+			if !seen && !ours[ev.Actor.ID] {
+				continue
+			}
+			ours[ev.Actor.ID] = true
 
 			switch ev.Action {
 			case events.ActionCreate:
@@ -111,7 +130,9 @@ func Observe(ctx context.Context, cli *client.Client, composeFile, project strin
 			svc := run.service(r.service)
 			svc.probePending = false
 			svc.HasHealthcheck = r.hasHealthcheck
+			svc.ExpectsPort = r.expectsPort
 			svc.PredicateTrue = r.at
+			svc.Accepting = r.accepting
 
 		case err := <-composeDone:
 			// Return the run alongside the error. A container that fails to
@@ -153,19 +174,40 @@ func probeService(ctx context.Context, cli *client.Client, containerID, service 
 		return
 	}
 	config := got.Container.Config
-	if config == nil || config.Healthcheck == nil {
-		return
-	}
-	result.hasHealthcheck = true
-
-	argv := probeArgv(config.Healthcheck.Test)
-	if argv == nil {
+	if config == nil {
 		return
 	}
 
-	at, err := waitReady(ctx, cli, containerID, argv)
-	if err != nil {
-		return
+	var argv []string
+	if config.Healthcheck != nil {
+		argv = probeArgv(config.Healthcheck.Test)
 	}
-	result.at = at
+	ports := declaredPorts(config.ExposedPorts)
+
+	result.hasHealthcheck = argv != nil
+	result.expectsPort = len(ports) > 0
+
+	// Both tracks run against the same container from the same moment, and
+	// neither's answer depends on the other's. Each writes its own field, so
+	// the result is sent once both have finished or given up.
+	var wait sync.WaitGroup
+	if argv != nil {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			if at, err := waitReady(ctx, cli, containerID, argv); err == nil {
+				result.at = at
+			}
+		}()
+	}
+	if len(ports) > 0 {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			if at, err := waitAccepting(ctx, cli, containerID, ports); err == nil {
+				result.accepting = at
+			}
+		}()
+	}
+	wait.Wait()
 }
