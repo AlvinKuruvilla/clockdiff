@@ -98,6 +98,21 @@ Findings exit 1, so `check` can gate a pre-commit hook.
 go install github.com/AlvinKuruvilla/clockdiff@latest
 ```
 
+## Saving a run
+
+`clockdiff up --json` writes the run instead of reporting it:
+
+```sh
+clockdiff up --json > run.json
+```
+
+Timestamps are absolute and unrounded, and no derived duration is stored —
+dead time, boot time and how long a dependent was held are all differences
+between recorded moments, so a reader computing them cannot disagree with the
+writer. The file carries a `version`, because the point of writing runs down
+is that whatever reads them can be replaced without touching what produces
+them.
+
 ## Naming the files
 
 Both subcommands take compose files three ways:

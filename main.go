@@ -145,6 +145,7 @@ func newUpCommand() *cobra.Command {
 		timeout time.Duration
 		project string
 		files   []string
+		asJSON  bool
 	)
 
 	cmd := &cobra.Command{
@@ -189,11 +190,17 @@ func newUpCommand() *cobra.Command {
 
 			// A run can fail and still have measured most of the stack, so
 			// print whatever it managed before reporting the failure.
-			run, err := runtime.Observe(ctx, cli, files, project)
+			run, observeErr := runtime.Observe(ctx, cli, files, project)
 			if run != nil {
-				report.WriteProfile(cmd.OutOrStdout(), run)
+				if asJSON {
+					if err := report.WriteJSON(cmd.OutOrStdout(), run); err != nil {
+						return err
+					}
+				} else {
+					report.WriteProfile(cmd.OutOrStdout(), run)
+				}
 			}
-			return err
+			return observeErr
 		},
 	}
 
@@ -201,6 +208,8 @@ func newUpCommand() *cobra.Command {
 		"give up if the stack has not settled")
 	cmd.Flags().StringVarP(&project, "project-name", "p", "",
 		"compose project name (default: the compose file's directory)")
+	cmd.Flags().BoolVar(&asJSON, "json", false,
+		"write the run as JSON instead of a report")
 	addFileFlag(cmd, &files)
 
 	return cmd

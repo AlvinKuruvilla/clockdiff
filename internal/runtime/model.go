@@ -105,8 +105,7 @@ const (
 	OutcomeCompleted
 
 	// OutcomeAccepting is a service with no healthcheck that was nonetheless
-	// seen to start listening on a port it declares. Weaker than healthy —
-	// a bound socket is not a served request — but far more than nothing.
+	// seen to start listening on a port it declares.
 	OutcomeAccepting
 
 	// OutcomeNoReadiness is a started service that declares neither a
@@ -114,6 +113,30 @@ const (
 	// instant it starts, so starting is all the readiness there is to have.
 	OutcomeNoReadiness
 )
+
+// String is the name an outcome goes by outside the program. These are written
+// into run files, so they are part of that format rather than a debugging
+// convenience: renaming one breaks every reader.
+func (o Outcome) String() string {
+	switch o {
+	case OutcomePending:
+		return "pending"
+	case OutcomeHealthy:
+		return "healthy"
+	case OutcomeUnhealthy:
+		return "unhealthy"
+	case OutcomeCrashed:
+		return "crashed"
+	case OutcomeCompleted:
+		return "completed"
+	case OutcomeAccepting:
+		return "accepting"
+	case OutcomeNoReadiness:
+		return "no-readiness"
+	default:
+		return "unknown"
+	}
+}
 
 // Outcome classifies a service. A container declaring a healthcheck has three
 // terminal states — healthy, unhealthy, dead — and stays pending until one of
