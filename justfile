@@ -49,7 +49,7 @@ lint:
     targets=(. ./internal/...)
     # gofmt -l exits 0 whether or not it lists anything, so the emptiness of
     # its output is the assertion.
-    unformatted=$(gofmt -l main.go internal)
+    unformatted=$(gofmt -l *.go internal)
     if [[ -n "$unformatted" ]]; then
         echo "not gofmt'd:" >&2
         echo "$unformatted" >&2
@@ -63,8 +63,35 @@ lint:
     fi
     staticcheck "${targets[@]}"
 
-# What CI would run, once there is any
-ci: lint test
+# Rebuild the embedded viewer, cold; run before committing viewer/src changes
+viewer-build:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd viewer
+    # Clearing the cache is the whole point of this recipe. Vite's warm cache
+    # keeps Tailwind candidates from source that no longer exists, so a warm
+    # rebuild carries dead CSS and will not match the cold build CI performs
+    # on a fresh checkout. Two cold builds are byte-identical; a warm one is
+    # not.
+    rm -rf node_modules/.vite dist
+    npm run build
+
+# Typecheck the viewer without emitting
+viewer-check:
+    cd viewer && ./node_modules/.bin/tsc -b
+
+# Assert the committed bundle is what the current source builds
+viewer-fresh: viewer-build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! git diff --quiet -- viewer/dist; then
+        echo "viewer/dist is stale — run: just viewer-build && git add viewer/dist" >&2
+        git --no-pager diff --stat -- viewer/dist >&2
+        exit 1
+    fi
+
+# What CI runs
+ci: lint test viewer-check viewer-fresh
 
 clean:
     rm -rf tmp

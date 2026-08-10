@@ -1,0 +1,65 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go install honnef.co/go/tools/cmd/staticcheck@latest
+      - run: gofmt -l *.go internal | tee /dev/stderr | (! read)
+      - run: go vet . ./internal/...
+      - run: staticcheck . ./internal/...
+      # The corpus lives in another repository and is not available here, so
+      # the acceptance tests that need it skip rather than fail. What runs is
+      # everything else.
+      - run: go test ./...
+
+  viewer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: viewer/package-lock.json
+      - run: npm ci
+        working-directory: viewer
+      - run: ./node_modules/.bin/tsc -b
+        working-directory: viewer
+
+      # `viewer/dist` is committed because //go:embed needs it at compile time
+      # and `go install ...@latest` sees only what is checked in. A fresh
+      # checkout has no Vite cache, so this build is cold and reproducible;
+      # `just viewer-build` clears the cache locally to match it.
+      - run: npm run build
+        working-directory: viewer
+      - name: viewer/dist matches the source it was built from
+        run: |
+          if ! git diff --quiet -- viewer/dist; then
+            echo "::error::viewer/dist is stale. Run 'just viewer-build' and commit the result."
+            git --no-pager diff --stat -- viewer/dist
+            exit 1
+          fi
+
+  # The binary has to build with the committed bundle embedded, which is the
+  # thing `go install` will actually do. Kept separate from the Go job so a
+  # stale bundle is distinguishable from a broken build.
+  embed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go build ./...
