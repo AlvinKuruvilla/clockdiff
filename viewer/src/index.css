@@ -3,6 +3,13 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
 
+/* dist/ is committed, so it is not gitignored, so Tailwind's automatic source
+   detection scans it — finding the class names inside the previous bundle and
+   regenerating every one of them. The output then contains every class the
+   project has ever used and grows on its own. Excluding it is what makes a
+   build depend only on src/. */
+@source not "../dist";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

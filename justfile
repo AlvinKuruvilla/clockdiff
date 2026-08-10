@@ -63,18 +63,9 @@ lint:
     fi
     staticcheck "${targets[@]}"
 
-# Rebuild the embedded viewer, cold; run before committing viewer/src changes
+# Rebuild the embedded viewer; run before committing viewer/src changes
 viewer-build:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cd viewer
-    # Clearing the cache is the whole point of this recipe. Vite's warm cache
-    # keeps Tailwind candidates from source that no longer exists, so a warm
-    # rebuild carries dead CSS and will not match the cold build CI performs
-    # on a fresh checkout. Two cold builds are byte-identical; a warm one is
-    # not.
-    rm -rf node_modules/.vite dist
-    npm run build
+    cd viewer && npm run build
 
 # Typecheck the viewer without emitting
 viewer-check:
