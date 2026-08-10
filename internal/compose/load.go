@@ -9,21 +9,57 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/compose-spec/compose-go/v2/cli"
 	"github.com/compose-spec/compose-go/v2/loader"
 	"github.com/compose-spec/compose-go/v2/types"
 )
 
-// LoadProject parses one compose file the way Compose itself would: ${VAR}
-// interpolation, merge keys, extends, includes.
-func LoadProject(path string) (*types.Project, error) {
-	abs, err := filepath.Abs(path)
+// Discover returns the compose files Compose itself would load from dir when
+// given no -f: the first recognised name, plus its override if one sits beside
+// it. The search walks upward to the filesystem root, so a call from an
+// unrelated directory can find a project several levels up — which is what
+// Compose does.
+func Discover(dir string) ([]string, error) {
+	opts, err := cli.NewProjectOptions(nil,
+		cli.WithWorkingDirectory(dir),
+		cli.WithDefaultConfigPath,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("resolve %s: %w", path, err)
+		return nil, fmt.Errorf("find a compose file: %w", err)
+	}
+	if len(opts.ConfigPaths) == 0 {
+		return nil, fmt.Errorf("no compose file found in %s or any parent", dir)
+	}
+	return opts.ConfigPaths, nil
+}
+
+// LoadProject parses compose files the way Compose itself would: ${VAR}
+// interpolation, merge keys, extends, includes, and later files overriding
+// earlier ones.
+//
+// Passing more than one matters even when the caller only knows of one.
+// Compose merges docker-compose.override.yml automatically, and reading the
+// base file alone describes a stack nobody runs.
+func LoadProject(paths ...string) (*types.Project, error) {
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("no compose file given")
+	}
+
+	files := make([]types.ConfigFile, 0, len(paths))
+	for _, path := range paths {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return nil, fmt.Errorf("resolve %s: %w", path, err)
+		}
+		files = append(files, types.ConfigFile{Filename: abs})
 	}
 
 	details := types.ConfigDetails{
-		WorkingDir:  filepath.Dir(abs),
-		ConfigFiles: []types.ConfigFile{{Filename: abs}},
+		// Compose resolves relative paths — build contexts, env_file, volumes
+		// — against the first file's directory, not against whichever file
+		// mentioned them.
+		WorkingDir:  filepath.Dir(files[0].Filename),
+		ConfigFiles: files,
 		Environment: processEnvironment(),
 	}
 

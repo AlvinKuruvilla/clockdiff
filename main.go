@@ -48,23 +48,29 @@ func main() {
 }
 
 func newCheckCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "check <compose-file>",
+	var files []string
+
+	cmd := &cobra.Command{
+		Use:   "check [-f compose.yml]...",
 		Short: "Report static defects in a compose file, without running it",
 		Long: "Report static defects in a compose file, without running it.\n\n" +
 			"Only one defect is statically decidable: a start_interval that cannot\n" +
 			"take effect. Everything else clockdiff reports needs a measured run.",
-		Args: cobra.ExactArgs(1),
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			path := args[0]
+			files, err := resolveFiles(files)
+			if err != nil {
+				return err
+			}
 
-			project, err := compose.LoadProject(path)
+			project, err := compose.LoadProject(files...)
 			if err != nil {
 				return err
 			}
 
 			findings := compose.Check(project)
-			report.WriteCheck(cmd.OutOrStdout(), path, findings, compose.Summarize(project))
+			report.WriteCheck(cmd.OutOrStdout(), strings.Join(files, ", "),
+				findings, compose.Summarize(project))
 
 			if len(findings) == 0 {
 				return nil
@@ -72,32 +78,78 @@ func newCheckCommand() *cobra.Command {
 			return exitFindings
 		},
 	}
+
+	addFileFlag(cmd, &files)
+	return cmd
+}
+
+// addFileFlag mirrors `docker compose -f`: repeatable, in merge order, and
+// absent means let Compose find its own files.
+func addFileFlag(cmd *cobra.Command, files *[]string) {
+	cmd.Flags().StringArrayVarP(files, "file", "f", nil,
+		"compose file, repeatable; later files override earlier "+
+			"(default: the files compose would discover)")
+}
+
+// resolveFiles fills in what Compose would have loaded when nothing was named.
+// check has to do this itself because it loads the model rather than shelling
+// out; up leaves the discovery to compose.
+func resolveFiles(files []string) ([]string, error) {
+	if len(files) > 0 {
+		return files, nil
+	}
+
+	dir, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+
+	found, err := compose.Discover(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	// Discovery returns absolute paths. They are printed back in the report
+	// header, where the reader already knows where they are standing.
+	for i, path := range found {
+		if rel, err := filepath.Rel(dir, path); err == nil {
+			found[i] = rel
+		}
+	}
+	return found, nil
 }
 
 func newUpCommand() *cobra.Command {
 	var (
 		timeout time.Duration
 		project string
+		files   []string
 	)
 
 	cmd := &cobra.Command{
-		Use:   "up <compose-file>",
+		Use:   "up [-f compose.yml]...",
 		Short: "Start the stack and measure where its startup went",
 		Long: "Start the stack and measure where its startup went.\n\n" +
 			"Each service's own healthcheck is run out-of-band from the moment its\n" +
 			"container starts, so readiness is known independently of when Docker\n" +
 			"gets round to noticing it. The difference is dead time.",
-		Args: cobra.ExactArgs(1),
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			path := args[0]
-
-			// Compose names a project after the directory holding the file.
+			// Compose names a project after the directory holding the first
+			// file, or the working directory when it found them itself.
 			if project == "" {
-				abs, err := filepath.Abs(path)
+				dir, err := os.Getwd()
 				if err != nil {
 					return err
 				}
-				project = strings.ToLower(filepath.Base(filepath.Dir(abs)))
+				if len(files) > 0 {
+					abs, err := filepath.Abs(files[0])
+					if err != nil {
+						return err
+					}
+					dir = filepath.Dir(abs)
+				}
+				project = strings.ToLower(filepath.Base(dir))
 			}
 
 			cli, err := runtime.NewClient()
@@ -111,7 +163,7 @@ func newUpCommand() *cobra.Command {
 
 			// A run can fail and still have measured most of the stack, so
 			// print whatever it managed before reporting the failure.
-			run, err := runtime.Observe(ctx, cli, path, project)
+			run, err := runtime.Observe(ctx, cli, files, project)
 			if run != nil {
 				report.WriteProfile(cmd.OutOrStdout(), run)
 			}
@@ -123,6 +175,7 @@ func newUpCommand() *cobra.Command {
 		"give up if the stack has not settled")
 	cmd.Flags().StringVarP(&project, "project-name", "p", "",
 		"compose project name (default: the compose file's directory)")
+	addFileFlag(cmd, &files)
 
 	return cmd
 }

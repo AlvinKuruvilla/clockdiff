@@ -30,7 +30,7 @@ check file: build
     # Findings exit 1 by design, which is not a recipe failure. A load error
     # or bad usage exits 2 and still propagates.
     status=0
-    ./tmp/clockdiff check {{ file }} || status=$?
+    ./tmp/clockdiff check -f {{ file }} || status=$?
     [[ $status -le 1 ]] || exit "$status"
 
 fmt:

@@ -46,7 +46,7 @@ type readyResult struct {
 // Since is set rather than relying on opening the stream first: Events returns
 // before its HTTP connection is established, so ordering alone races and the
 // start events for fast services can be missed.
-func Observe(ctx context.Context, cli *client.Client, composeFile, project string) (*Run, error) {
+func Observe(ctx context.Context, cli *client.Client, composeFiles []string, project string) (*Run, error) {
 	t0 := time.Now()
 	run := &Run{Project: project, T0: t0, Services: make(map[string]*Service), Graph: newGraph()}
 
@@ -55,10 +55,18 @@ func Observe(ctx context.Context, cli *client.Client, composeFile, project strin
 		Filters: make(client.Filters).Add("type", "container"),
 	})
 
+	// With no files named, compose is left to discover its own — including the
+	// override file it merges automatically, which naming one file would
+	// suppress.
+	args := []string{"compose"}
+	for _, file := range composeFiles {
+		args = append(args, "-f", file)
+	}
+	args = append(args, "-p", project, "up", "-d")
+
 	composeDone := make(chan error, 1)
 	go func() {
-		out, err := exec.CommandContext(ctx, "docker", "compose",
-			"-f", composeFile, "-p", project, "up", "-d").CombinedOutput()
+		out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
 		if err != nil {
 			// CombinedOutput carries the whole progress log; only its tail
 			// says anything about the failure.
