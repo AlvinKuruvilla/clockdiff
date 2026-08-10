@@ -51,14 +51,18 @@ func newCheckCommand() *cobra.Command {
 	var files []string
 
 	cmd := &cobra.Command{
-		Use:   "check [-f compose.yml]...",
+		Use:   "check [compose.yml...] [-f compose.yml]...",
 		Short: "Report static defects in a compose file, without running it",
 		Long: "Report static defects in a compose file, without running it.\n\n" +
 			"Only one defect is statically decidable: a start_interval that cannot\n" +
 			"take effect. Everything else clockdiff reports needs a measured run.",
-		Args: cobra.NoArgs,
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			files, err := resolveFiles(files)
+			named, err := namedFiles(files, args)
+			if err != nil {
+				return err
+			}
+			files, err := resolveFiles(named)
 			if err != nil {
 				return err
 			}
@@ -89,6 +93,23 @@ func addFileFlag(cmd *cobra.Command, files *[]string) {
 	cmd.Flags().StringArrayVarP(files, "file", "f", nil,
 		"compose file, repeatable; later files override earlier "+
 			"(default: the files compose would discover)")
+}
+
+// namedFiles is the file list the user asked for, by either spelling.
+//
+// Positional paths and -f are both accepted because naming one file is the
+// common case and `clockdiff check compose.yml` is how anyone would first try
+// it. Giving both is refused rather than merged: the two would have to be
+// ordered against each other, and merge order decides which file wins.
+func namedFiles(flagged, positional []string) ([]string, error) {
+	switch {
+	case len(flagged) > 0 && len(positional) > 0:
+		return nil, fmt.Errorf("pass compose files either as arguments or with -f, not both")
+	case len(flagged) > 0:
+		return flagged, nil
+	default:
+		return positional, nil
+	}
 }
 
 // resolveFiles fills in what Compose would have loaded when nothing was named.
@@ -127,14 +148,19 @@ func newUpCommand() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "up [-f compose.yml]...",
+		Use:   "up [compose.yml...] [-f compose.yml]...",
 		Short: "Start the stack and measure where its startup went",
 		Long: "Start the stack and measure where its startup went.\n\n" +
 			"Each service's own healthcheck is run out-of-band from the moment its\n" +
 			"container starts, so readiness is known independently of when Docker\n" +
 			"gets round to noticing it. The difference is dead time.",
-		Args: cobra.NoArgs,
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			files, err := namedFiles(files, args)
+			if err != nil {
+				return err
+			}
+
 			// Compose names a project after the directory holding the first
 			// file, or the working directory when it found them itself.
 			if project == "" {
