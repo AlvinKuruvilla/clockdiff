@@ -80,8 +80,15 @@ func describe(run *runtime.Run, svc *runtime.Service) string {
 
 	// The wait a gated service inherited is the point of recording the graph:
 	// dead time does not stay on the service that caused it.
-	if blocked, ok := run.Blocked(svc.Name); ok {
-		parts = append(parts, fmt.Sprintf("blocked %s on %s", short(blocked), waitedFor(run, svc.Name)))
+	if deps := run.Graph.DependsOn(svc.Name); len(deps) > 0 {
+		if blocked, ok := run.Blocked(svc.Name); ok {
+			parts = append(parts, fmt.Sprintf("blocked %s on %s", short(blocked), waitedFor(run, svc.Name)))
+		} else {
+			// A container compose starts rather than creates emits no create
+			// event, so the span it was held for is unknown. Saying nothing
+			// would read as a service that waited for nothing.
+			parts = append(parts, fmt.Sprintf("blocked on %s, for how long is unknown", waitedFor(run, svc.Name)))
+		}
 	}
 
 	ran, ranOK := svc.Ran()

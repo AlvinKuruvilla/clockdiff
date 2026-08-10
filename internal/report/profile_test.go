@@ -50,3 +50,26 @@ func TestProfileFlagsPartialRuns(t *testing.T) {
 		t.Errorf("the unmeasured service went unmentioned:\n%s", got)
 	}
 }
+
+// A container compose starts rather than creates emits no create event, so the
+// span it was held for is unknown. Dropping the row entirely would read as a
+// service that waited for nothing.
+func TestBlockedIsReportedEvenWhenItsLengthIsUnknown(t *testing.T) {
+	run := &runtime.Run{
+		Project: "demo",
+		Services: map[string]*runtime.Service{
+			"db":  {Name: "db", Start: time.Now(), DeclaredHealthy: time.Now()},
+			"api": {Name: "api", Start: time.Now()}, // no Created
+		},
+	}
+	run.SetDependsOn("api", []runtime.Dependency{
+		{Service: "db", Condition: runtime.ConditionHealthy},
+	})
+
+	var out strings.Builder
+	WriteProfile(&out, run)
+
+	if got := out.String(); !strings.Contains(got, "blocked on db, for how long is unknown") {
+		t.Errorf("the wait went unreported:\n%s", got)
+	}
+}

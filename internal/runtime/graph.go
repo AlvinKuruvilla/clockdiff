@@ -49,6 +49,16 @@ func (g *Graph) add(service string, deps []Dependency) {
 	}
 }
 
+// SetDependsOn records a service's edges. Observe fills these in from
+// container labels; tests and future readers of a serialised run need a way in
+// that does not involve a daemon.
+func (r *Run) SetDependsOn(service string, deps []Dependency) {
+	if r.Graph == nil {
+		r.Graph = newGraph()
+	}
+	r.Graph.add(service, deps)
+}
+
 // DependsOn returns what the service waited for. A nil graph has no edges,
 // so a Run assembled without one renders as a stack with no dependencies
 // rather than crashing the report.
