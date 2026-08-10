@@ -13,9 +13,16 @@
 // The layout is deliberately dense. A profiler is read by scanning rows for
 // the one that is wrong, and rows that need vertical eye travel defeat that.
 
-import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Lane, Run, Span, SpanKind } from '@/lib/run'
 import { formatDuration, linearScale, ticks, type Scale } from '@/lib/scale'
+import {
+  fullExtent,
+  isFullExtent,
+  panBy,
+  zoomAbout,
+  type Viewport,
+} from '@/lib/viewport'
 
 const LANE_HEIGHT = 18
 const LANE_GAP = 2
@@ -86,36 +93,127 @@ export interface TimelineProps {
 export function Timeline({ run, selected, onSelect }: TimelineProps) {
   const [trackRef, trackWidth] = useMeasuredWidth()
   const [cursorMs, setCursorMs] = useState<number | null>(null)
+  const [view, setView] = useState<Viewport>(() => fullExtent(run.durationMs))
+  const [drag, setDrag] = useState<{ from: number; to: number } | null>(null)
 
-  const scale = linearScale(0, run.durationMs, trackWidth)
+  // A different run is a different axis; keeping the old window would show a
+  // slice of a run that no longer exists.
+  useEffect(() => setView(fullExtent(run.durationMs)), [run])
+
+  const scale = linearScale(view.start, view.end, trackWidth)
   const major = trackWidth > 0 ? ticks(scale) : []
+
+  // Positions are measured against the track, never against a row that also
+  // contains the gutter — the gutter's width would otherwise be read as time.
+  const pointerMs = useCallback(
+    (clientX: number): number | null => {
+      const track = trackRef.current
+      if (track === null) return null
+      return scale.invert(clientX - track.getBoundingClientRect().left)
+    },
+    [scale, trackRef],
+  )
 
   const handleMove = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
-      const box = event.currentTarget.getBoundingClientRect()
-      setCursorMs(scale.invert(event.clientX - box.left))
+      setCursorMs(pointerMs(event.clientX))
     },
-    [scale],
+    [pointerMs],
   )
+
+  // Wheel is registered natively and non-passively: React's synthetic wheel
+  // listener is passive, so preventDefault on it is ignored and the page
+  // scrolls while zooming.
+  const surfaceRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const surface = surfaceRef.current
+    if (surface === null) return
+
+    const onWheel = (event: WheelEvent) => {
+      const at = pointerMs(event.clientX)
+      if (at === null) return
+      event.preventDefault()
+
+      if (event.shiftKey) {
+        const perPixel = (view.end - view.start) / Math.max(1, trackWidth)
+        setView(panBy(view, event.deltaY * perPixel, run.durationMs))
+        return
+      }
+      const factor = Math.exp(event.deltaY * 0.002)
+      setView(zoomAbout(view, at, factor, run.durationMs))
+    }
+
+    surface.addEventListener('wheel', onWheel, { passive: false })
+    return () => surface.removeEventListener('wheel', onWheel)
+  }, [pointerMs, run.durationMs, trackWidth, view])
+
+  // Dragging across the ruler picks a range. The window is only committed on
+  // release, so a drag can be abandoned by ending it where it started.
+  const beginDrag = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      const at = pointerMs(event.clientX)
+      if (at === null) return
+      event.preventDefault()
+      setDrag({ from: at, to: at })
+
+      const onMove = (move: MouseEvent) => {
+        const to = pointerMs(move.clientX)
+        if (to !== null) setDrag((current) => (current ? { ...current, to } : null))
+      }
+      const onUp = () => {
+        window.removeEventListener('mousemove', onMove)
+        window.removeEventListener('mouseup', onUp)
+        setDrag((current) => {
+          if (current !== null) {
+            const start = Math.min(current.from, current.to)
+            const end = Math.max(current.from, current.to)
+            // A click, not a drag. Leave the window alone.
+            if (end - start > 0) setView({ start, end })
+          }
+          return null
+        })
+      }
+      window.addEventListener('mousemove', onMove)
+      window.addEventListener('mouseup', onUp)
+    },
+    [pointerMs],
+  )
+
+  const zoomed = !isFullExtent(view, run.durationMs)
 
   // Rendering before the first measurement would place every span at zero and
   // then jump, so hold the drawing until the width is known.
   const measured = trackWidth > 0
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-background">
+    <div
+      className="flex h-full flex-col overflow-hidden bg-background"
+      ref={surfaceRef}
+    >
       <div
         className="relative flex shrink-0 border-b"
         onMouseLeave={() => setCursorMs(null)}
         onMouseMove={handleMove}
       >
         <div
-          className="shrink-0 border-r px-2 py-1 text-[10px] tracking-wide text-muted-foreground uppercase"
+          className="flex shrink-0 items-center justify-between border-r px-2 text-[10px] tracking-wide text-muted-foreground uppercase"
           style={{ width: GUTTER_WIDTH, height: RULER_HEIGHT }}
         >
-          service
+          <span>service</span>
+          {zoomed && (
+            <button
+              className="rounded border px-1 text-[9px] normal-case hover:text-foreground"
+              onClick={() => setView(fullExtent(run.durationMs))}
+              title="show the whole run"
+              type="button"
+            >
+              reset
+            </button>
+          )}
         </div>
-        <Ruler scale={scale} major={major} measured={measured} />
+        <div className="relative flex-1 cursor-ew-resize" onMouseDown={beginDrag}>
+          <Ruler scale={scale} major={major} measured={measured} />
+        </div>
       </div>
 
       <div
@@ -134,7 +232,9 @@ export function Timeline({ run, selected, onSelect }: TimelineProps) {
           ))}
         </div>
 
-        <div className="relative flex-1" ref={trackRef}>
+        {/* Clipped, because a zoomed-in span is positioned far outside the
+            track and must not paint over the gutter. */}
+        <div className="relative flex-1 overflow-hidden" ref={trackRef}>
           {/* Rules sit behind the spans so a span edge can be read against
               the axis without the rule cutting through it. */}
           {major.map((tick) => (
@@ -155,6 +255,16 @@ export function Timeline({ run, selected, onSelect }: TimelineProps) {
                 onSelect={onSelect}
               />
             ))}
+
+          {measured && drag !== null && (
+            <div
+              className="pointer-events-none absolute top-0 bottom-0 z-10 border-x border-foreground/40 bg-foreground/10"
+              style={{
+                left: scale.x(Math.min(drag.from, drag.to)),
+                width: Math.abs(scale.x(drag.to) - scale.x(drag.from)),
+              }}
+            />
+          )}
 
           {measured && cursorMs !== null && (
             <div
@@ -190,6 +300,15 @@ export function Timeline({ run, selected, onSelect }: TimelineProps) {
             )}
           </span>
         ))}
+
+        <span className="ml-auto flex items-center gap-3 tabular-nums">
+          {cursorMs !== null && <span>{formatDuration(cursorMs)}</span>}
+          <span className="opacity-70">
+            {zoomed
+              ? `${formatDuration(view.start)}–${formatDuration(view.end)}`
+              : 'drag the ruler to zoom · wheel to scale · shift-wheel to pan'}
+          </span>
+        </span>
       </div>
     </div>
   )
