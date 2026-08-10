@@ -5,7 +5,7 @@
 // row whether or not it did any of the work itself. Selection is shared with
 // the timeline, so a row and its lane are the same object seen twice.
 
-import type { Lane, Run } from '@/lib/run'
+import { deadTimeReason, type Lane, type Run } from '@/lib/run'
 import { formatDuration } from '@/lib/scale'
 import {
   Table,
@@ -133,6 +133,7 @@ function CostRow({
             ? { color: 'var(--span-dead)' }
             : undefined
         }
+        title={deadTimeReason(lane) ?? undefined}
       >
         {lane.deadMs === null ? '—' : formatDuration(lane.deadMs)}
       </TableCell>

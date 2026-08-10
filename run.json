@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "project": "precogly",
+  "startedAt": "2026-08-10T15:49:09.001405-04:00",
+  "services": [
+    {
+      "name": "backend",
+      "outcome": "accepting",
+      "created": "2026-08-10T15:49:09.20379-04:00",
+      "started": "2026-08-10T15:49:14.968643-04:00",
+      "accepting": "2026-08-10T15:49:31.006914-04:00",
+      "hasHealthcheck": false,
+      "expectsPort": true,
+      "dependsOn": [
+        {
+          "service": "db",
+          "condition": "service_healthy"
+        }
+      ]
+    },
+    {
+      "name": "db",
+      "outcome": "healthy",
+      "created": "2026-08-10T15:49:09.161743-04:00",
+      "started": "2026-08-10T15:49:09.370713-04:00",
+      "predicateTrue": "2026-08-10T15:49:09.964708-04:00",
+      "declaredHealthy": "2026-08-10T15:49:14.434068-04:00",
+      "accepting": "2026-08-10T15:49:10.21434-04:00",
+      "hasHealthcheck": true,
+      "expectsPort": true
+    },
+    {
+      "name": "frontend",
+      "outcome": "accepting",
+      "created": "2026-08-10T15:49:09.256732-04:00",
+      "started": "2026-08-10T15:49:15.061283-04:00",
+      "accepting": "2026-08-10T15:49:15.632052-04:00",
+      "hasHealthcheck": false,
+      "expectsPort": true,
+      "dependsOn": [
+        {
+          "service": "backend",
+          "condition": "service_started"
+        }
+      ]
+    },
+    {
+      "name": "lmstudio-proxy",
+      "outcome": "no-readiness",
+      "created": "2026-08-10T15:49:09.250215-04:00",
+      "started": "2026-08-10T15:49:15.038371-04:00",
+      "hasHealthcheck": false,
+      "expectsPort": false,
+      "dependsOn": [
+        {
+          "service": "backend",
+          "condition": "service_started"
+        }
+      ]
+    }
+  ]
+}

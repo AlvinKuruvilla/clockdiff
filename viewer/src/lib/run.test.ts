@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   conditionMetAt,
+  deadTimeReason,
   parseRun,
   UnsupportedFormatError,
   SUPPORTED_FORMAT_VERSION,
@@ -99,6 +100,27 @@ describe('cost', () => {
   it('reports no cost, rather than zero, for a service that never readied', () => {
     expect(lane('reports').readyMs).toBeNull()
     expect(lane('reports').ownMs).toBeNull()
+  })
+})
+
+describe('why a lane has no dead time', () => {
+  it('says nothing when there is a real figure to show', () => {
+    expect(deadTimeReason(lane('postgres'))).toBeNull()
+  })
+
+  it('names the reason for every lane that has none', () => {
+    for (const each of run.lanes.filter((l) => l.deadMs === null)) {
+      const reason = deadTimeReason(each)
+      expect(reason, each.name).not.toBeNull()
+      // The point of the string is that it explains; "no claim" does not.
+      expect(reason!.length, each.name).toBeGreaterThan(20)
+    }
+  })
+
+  it('distinguishes never probed from probed and failed', () => {
+    expect(deadTimeReason(lane('docs'))).toMatch(/no healthcheck/)
+    expect(deadTimeReason(lane('metrics'))).toMatch(/never passed/)
+    expect(deadTimeReason(lane('docs'))).not.toEqual(deadTimeReason(lane('metrics')))
   })
 })
 

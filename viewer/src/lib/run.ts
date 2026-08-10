@@ -163,6 +163,40 @@ export function conditionMetAt(lane: Lane, condition: Condition): number | null 
   }
 }
 
+/**
+ * Why a lane carries no dead time, phrased as what happened rather than as
+ * the absence of a number.
+ *
+ * "No claim available" is true and tells a reader nothing. Every one of these
+ * cases is a different situation with a different thing to do about it, and a
+ * service with no healthcheck is not a service that wasted no time — it is a
+ * service nobody can tell either way. The text report already names these
+ * reasons; this keeps the viewer saying the same thing.
+ */
+export function deadTimeReason(lane: Lane): string | null {
+  if (lane.deadMs !== null) return null
+
+  switch (lane.outcome) {
+    case 'no-readiness':
+      return 'no healthcheck and no published port, so nothing ever declared it ready — there is no moment to be late about'
+    case 'accepting':
+      return 'no healthcheck: readiness was measured by the port accepting, which nothing was waiting on'
+    case 'unhealthy':
+      return 'probed until the run ended and never passed, so none of that time was recoverable'
+    case 'pending':
+      return 'still starting when the run ended'
+    case 'crashed':
+      return 'exited before anything declared it ready'
+    case 'completed':
+      return 'ran to completion, so there was no readiness to be late about'
+    case 'healthy':
+      // Declared healthy without clockdiff's own probe ever succeeding: the
+      // daemon's moment is known and the real one is not, so the gap between
+      // them cannot be measured.
+      return 'declared healthy, but its healthcheck was never observed passing out of band, so the gap cannot be measured'
+  }
+}
+
 export class UnsupportedFormatError extends Error {
   readonly found: number
 

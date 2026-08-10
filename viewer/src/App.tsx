@@ -13,6 +13,7 @@ import {
   ResizablePanelGroup,
 } from '@/components/ui/resizable'
 import {
+  deadTimeReason,
   parseRun,
   UnsupportedFormatError,
   type Lane,
@@ -169,9 +170,15 @@ function Inspector({ lane }: { lane: Lane | null }) {
           {lane.ownMs === null ? '—' : formatDuration(lane.ownMs)}
         </Field>
         <Field label="dead time">
-          {lane.deadMs === null
-            ? 'no claim available'
-            : formatDuration(lane.deadMs)}
+          {lane.deadMs === null ? (
+            <span className="text-muted-foreground">
+              {deadTimeReason(lane)}
+            </span>
+          ) : (
+            <span style={{ color: 'var(--span-dead)' }}>
+              {formatDuration(lane.deadMs)}
+            </span>
+          )}
         </Field>
         {lane.exitCode !== undefined && (
           <Field label="exit code">{lane.exitCode}</Field>
