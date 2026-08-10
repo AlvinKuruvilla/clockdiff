@@ -98,8 +98,24 @@ Findings exit 1, so `check` can gate a pre-commit hook.
 go install github.com/AlvinKuruvilla/clockdiff@latest
 ```
 
-Both take `-f` like compose does: repeatable, later files overriding earlier,
-and omitted means compose finds its own — including the
-`docker-compose.override.yml` that naming a single file would suppress.
+## Naming the files
+
+Both subcommands take compose files three ways:
+
+```sh
+clockdiff check                              # discover, as compose does
+clockdiff check compose.yml                  # a path
+clockdiff check -f base.yml -f override.yml  # explicit, in merge order
+```
+
+With nothing named, discovery searches the working directory and then upward,
+picking the first recognised filename plus its `docker-compose.override.yml`
+if one sits beside it — which is what `docker compose` itself loads. Naming a
+single file **suppresses that override**, so `-f base.yml` measures a
+configuration nobody runs. That is the reason to prefer the bare form inside a
+project.
+
+Paths and `-f` cannot be combined, because the two would have to be ordered
+against each other and merge order decides which file wins.
 
 `up` needs a running daemon and starts your stack. `check` needs neither.
