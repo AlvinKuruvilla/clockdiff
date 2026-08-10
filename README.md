@@ -4,7 +4,7 @@ clockdiff is a profiler for `docker compose up`. It finds the seconds a stack
 spends waiting on health probes that would already have passed.
 
 Docker fires a container's first health probe one full `interval` after it
-starts. A postgres ready in 460ms behind `interval: 5s` is declared unhealthy
+starts. A postgres ready in 530ms behind `interval: 5s` is declared unhealthy
 for the rest of those five seconds, and everything gated on
 `condition: service_healthy` waits it out. Across 254 real compose projects the
 median gated service loses 6.6s this way.
@@ -29,13 +29,13 @@ services:
       db:
         condition: service_healthy
 
-$ clockdiff up compose.yml
+$ clockdiff up
   api  blocked 5.71s on db, accepting connections 2.24s
-  db   ready 460ms, declared healthy 5.06s, 4.6s dead, accepting 700ms
+  db   ready 530ms, declared healthy 5.06s, 4.53s dead, accepting 740ms
 ```
 
-`db` was answering `pg_isready` 460ms in and Docker did not notice until 5.06s.
-Those 4.6 seconds are dead, and they do not stay on the row that caused them:
+`db` was answering `pg_isready` 530ms in and Docker did not notice until 5.06s.
+Those 4.5 seconds are dead, and they do not stay on the row that caused them:
 `api` sat created but not started for 5.71s, then took 2.24s of its own. Fixing
 `db` takes roughly five seconds off the whole stack.
 
@@ -75,7 +75,7 @@ services:
       interval: 5s
       start_interval: 250ms
 
-$ clockdiff check tuned.yml
+$ clockdiff check -f tuned.yml
 tuned.yml
 
   cache      start_interval: 250ms has no effect
@@ -97,5 +97,9 @@ Findings exit 1, so `check` can gate a pre-commit hook.
 ```sh
 go install github.com/AlvinKuruvilla/clockdiff@latest
 ```
+
+Both take `-f` like compose does: repeatable, later files overriding earlier,
+and omitted means compose finds its own — including the
+`docker-compose.override.yml` that naming a single file would suppress.
 
 `up` needs a running daemon and starts your stack. `check` needs neither.
