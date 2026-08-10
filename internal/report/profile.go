@@ -118,7 +118,7 @@ func describe(run *runtime.Run, svc *runtime.Service) string {
 		// A blocked row already says everything known about a service with
 		// nothing of its own to report.
 		if len(parts) == 0 {
-			parts = append(parts, "no healthcheck")
+			parts = append(parts, "nothing to measure readiness by")
 		}
 	}
 
