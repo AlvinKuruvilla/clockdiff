@@ -22,6 +22,10 @@ func WriteProfile(w io.Writer, run *runtime.Run) {
 		names = append(names, name)
 		width = max(width, len(name))
 	}
+	// Unmeasured services get a row too, so they set the column as well.
+	for _, name := range run.AlreadyRunning {
+		width = max(width, len(name))
+	}
 	slices.Sort(names)
 
 	for _, name := range names {
@@ -34,6 +38,40 @@ func WriteProfile(w io.Writer, run *runtime.Run) {
 			fmt.Fprintf(w, "  %-*s    %s\n", width, "", line)
 		}
 	}
+
+	writeUnmeasured(w, run, width)
+}
+
+// writeUnmeasured names the services that were already up when the run began.
+//
+// Compose leaves them alone and the daemon reports nothing about them, so they
+// have no row. Omitting them silently would let a reader take a partial
+// profile for a complete one — and in the worst case, a stack that was
+// entirely up already prints nothing at all.
+func writeUnmeasured(w io.Writer, run *runtime.Run, width int) {
+	var skipped []string
+	for _, name := range run.AlreadyRunning {
+		if _, measured := run.Services[name]; !measured {
+			skipped = append(skipped, name)
+		}
+	}
+	if len(skipped) == 0 {
+		return
+	}
+
+	for _, name := range skipped {
+		fmt.Fprintf(w, "  %-*s  already running, not measured\n", width, name)
+	}
+	fmt.Fprintf(w, "\nCompose leaves a running container alone, so it reports nothing about it.\n"+
+		"To measure %s: docker compose -p %s down\n",
+		plural(len(skipped), "that service", "those services"), run.Project)
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 // describe is one service's row: what it waited for, then what became of it.

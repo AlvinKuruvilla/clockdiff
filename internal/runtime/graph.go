@@ -49,11 +49,23 @@ func (g *Graph) add(service string, deps []Dependency) {
 	}
 }
 
-// DependsOn returns what the service waited for.
-func (g *Graph) DependsOn(service string) []Dependency { return g.out[service] }
+// DependsOn returns what the service waited for. A nil graph has no edges,
+// so a Run assembled without one renders as a stack with no dependencies
+// rather than crashing the report.
+func (g *Graph) DependsOn(service string) []Dependency {
+	if g == nil {
+		return nil
+	}
+	return g.out[service]
+}
 
 // Dependents returns the services that waited for this one.
-func (g *Graph) Dependents(service string) []string { return g.in[service] }
+func (g *Graph) Dependents(service string) []string {
+	if g == nil {
+		return nil
+	}
+	return g.in[service]
+}
 
 // parseDependsOn reads compose's depends_on label, which looks like
 //

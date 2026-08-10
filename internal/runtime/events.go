@@ -50,6 +50,10 @@ func Observe(ctx context.Context, cli *client.Client, composeFiles []string, pro
 	t0 := time.Now()
 	run := &Run{Project: project, T0: t0, Services: make(map[string]*Service), Graph: newGraph()}
 
+	// Asked before compose runs: afterwards there is no way to tell a service
+	// compose left alone from one that never existed.
+	run.AlreadyRunning = runningServices(ctx, cli, project)
+
 	res := cli.Events(ctx, client.EventsListOptions{
 		Since:   strconv.FormatInt(t0.Unix(), 10),
 		Filters: make(client.Filters).Add("type", "container"),

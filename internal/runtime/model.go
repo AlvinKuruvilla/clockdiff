@@ -159,6 +159,14 @@ type Run struct {
 	Services map[string]*Service
 	Graph    *Graph
 
+	// AlreadyRunning are the services that were up before this run began.
+	//
+	// Compose leaves a running container alone, and Docker emits no events
+	// for a container nobody touched, so these produce no measurements at
+	// all. Recording them separately is what distinguishes a service with no
+	// startup cost from one that simply was not observed.
+	AlreadyRunning []string
+
 	// allStarted is set when `compose up -d` returns. Until then a service
 	// gated on another has not started and is absent from Services entirely,
 	// so the run cannot be judged finished.
