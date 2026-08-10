@@ -1,0 +1,128 @@
+{
+  "version": 1,
+  "project": "storefront",
+  "startedAt": "2026-08-10T09:14:32Z",
+  "services": [
+    {
+      "name": "api",
+      "outcome": "healthy",
+      "created": "2026-08-10T09:14:32.105Z",
+      "started": "2026-08-10T09:14:39.15Z",
+      "predicateTrue": "2026-08-10T09:14:40.02Z",
+      "declaredHealthy": "2026-08-10T09:14:41.99Z",
+      "hasHealthcheck": true,
+      "expectsPort": false,
+      "dependsOn": [
+        {
+          "service": "postgres",
+          "condition": "service_healthy"
+        },
+        {
+          "service": "migrations",
+          "condition": "service_completed_successfully"
+        },
+        {
+          "service": "cache",
+          "condition": "service_healthy"
+        }
+      ]
+    },
+    {
+      "name": "cache",
+      "outcome": "healthy",
+      "created": "2026-08-10T09:14:32.095Z",
+      "started": "2026-08-10T09:14:32.23Z",
+      "predicateTrue": "2026-08-10T09:14:32.305Z",
+      "declaredHealthy": "2026-08-10T09:14:34.28Z",
+      "hasHealthcheck": true,
+      "expectsPort": false
+    },
+    {
+      "name": "docs",
+      "outcome": "no-readiness",
+      "created": "2026-08-10T09:14:32.125Z",
+      "started": "2026-08-10T09:14:32.28Z",
+      "hasHealthcheck": false,
+      "expectsPort": false
+    },
+    {
+      "name": "metrics",
+      "outcome": "unhealthy",
+      "created": "2026-08-10T09:14:32.12Z",
+      "started": "2026-08-10T09:14:32.27Z",
+      "declaredUnhealthy": "2026-08-10T09:15:03.2Z",
+      "hasHealthcheck": true,
+      "expectsPort": false
+    },
+    {
+      "name": "migrations",
+      "outcome": "completed",
+      "created": "2026-08-10T09:14:32.1Z",
+      "started": "2026-08-10T09:14:37.34Z",
+      "exited": "2026-08-10T09:14:39.12Z",
+      "hasHealthcheck": false,
+      "expectsPort": false,
+      "exitCode": 0,
+      "dependsOn": [
+        {
+          "service": "postgres",
+          "condition": "service_healthy"
+        }
+      ]
+    },
+    {
+      "name": "postgres",
+      "outcome": "healthy",
+      "created": "2026-08-10T09:14:32.09Z",
+      "started": "2026-08-10T09:14:32.21Z",
+      "predicateTrue": "2026-08-10T09:14:32.412Z",
+      "declaredHealthy": "2026-08-10T09:14:37.31Z",
+      "hasHealthcheck": true,
+      "expectsPort": false
+    },
+    {
+      "name": "reports",
+      "outcome": "pending",
+      "created": "2026-08-10T09:14:32.13Z",
+      "started": "2026-08-10T09:14:41.995Z",
+      "hasHealthcheck": true,
+      "expectsPort": false
+    },
+    {
+      "name": "search",
+      "outcome": "crashed",
+      "created": "2026-08-10T09:14:32.115Z",
+      "started": "2026-08-10T09:14:32.26Z",
+      "exited": "2026-08-10T09:14:33.89Z",
+      "hasHealthcheck": false,
+      "expectsPort": false,
+      "exitCode": 137,
+      "crashLog": [
+        "bootstrap checks failed",
+        "max virtual memory areas vm.max_map_count [65530] is too low"
+      ]
+    },
+    {
+      "name": "worker",
+      "outcome": "accepting",
+      "created": "2026-08-10T09:14:32.11Z",
+      "started": "2026-08-10T09:14:39.16Z",
+      "accepting": "2026-08-10T09:14:40.64Z",
+      "hasHealthcheck": false,
+      "expectsPort": true,
+      "dependsOn": [
+        {
+          "service": "api",
+          "condition": "service_started"
+        },
+        {
+          "service": "cache",
+          "condition": "service_healthy"
+        }
+      ]
+    }
+  ],
+  "alreadyRunning": [
+    "mailhog"
+  ]
+}

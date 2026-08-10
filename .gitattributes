@@ -1,0 +1,5 @@
+# Built assets, committed because //go:embed needs them present at compile
+# time and `go install ...@latest` only sees committed files. Marked generated
+# so they collapse in review and stay out of language statistics.
+viewer/dist/** linguist-generated=true -diff
+viewer/package-lock.json linguist-generated=true -diff

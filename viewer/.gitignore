@@ -1,0 +1,28 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist-ssr
+*.local
+
+# dist/ is deliberately NOT ignored. `go install ...@latest` builds from the
+# module proxy, which serves only committed files, and //go:embed needs the
+# built assets present at compile time. CI runs `git diff --exit-code dist/`
+# so a stale bundle cannot ship.
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
