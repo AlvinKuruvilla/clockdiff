@@ -14,7 +14,14 @@
 // the one that is wrong, and rows that need vertical eye travel defeat that.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { Lane, Run, Span, SpanKind } from '@/lib/run'
+import {
+  conditionMetAt,
+  type Condition,
+  type Lane,
+  type Run,
+  type Span,
+  type SpanKind,
+} from '@/lib/run'
 import { formatDuration, linearScale, ticks, type Scale } from '@/lib/scale'
 import {
   fullExtent,
@@ -64,6 +71,87 @@ const LEGEND: SpanKind[] = [
   'done',
   'crashed',
 ]
+
+/** The vertical centre of a lane, by its position in the list. */
+function laneCentre(index: number): number {
+  return index * (LANE_HEIGHT + LANE_GAP) + LANE_HEIGHT / 2
+}
+
+interface Edge {
+  from: { ms: number; row: number }
+  to: { ms: number; row: number }
+  label: string
+  /** True when this is an edge the selected service was itself waiting on. */
+  inbound: boolean
+}
+
+/**
+ * The `depends_on` edges touching one service, in both directions.
+ *
+ * Only the selected service's edges are drawn. A stack in the corpus reaches
+ * 58 edges, and all of them at once is a mesh nobody can read; one service's
+ * are the answer to a question somebody just asked by clicking.
+ *
+ * An edge runs from the moment a condition was satisfied to the moment the
+ * waiting service started, and its length reads the opposite way round to
+ * what one expects: the shortest inbound edge is the binding one. A long edge
+ * means that dependency was ready well before the service could start and so
+ * was never what held it; the edge that barely spans anything is the gate
+ * that had just cleared.
+ *
+ * Which edge that is, is left to the reader — see docs/design/001, where a
+ * critical-path solver is declined on the grounds that a compose graph is
+ * about three levels deep and the path is plain once the structure is drawn.
+ */
+function edgesTouching(lanes: Lane[], selected: string | null): Edge[] {
+  if (selected === null) return []
+
+  const row = new Map(lanes.map((lane, index) => [lane.name, index]))
+  const byName = new Map(lanes.map((lane) => [lane.name, lane]))
+  const out: Edge[] = []
+
+  const add = (
+    waiter: Lane,
+    dependency: Lane,
+    condition: Condition,
+    inbound: boolean,
+  ) => {
+    const met = conditionMetAt(dependency, condition)
+    const started = waiter.moments.started
+    const fromRow = row.get(dependency.name)
+    const toRow = row.get(waiter.name)
+    if (met === null || started === null || fromRow === undefined || toRow === undefined) {
+      return
+    }
+    out.push({
+      from: { ms: met, row: fromRow },
+      to: { ms: started, row: toRow },
+      label: `${waiter.name} waited for ${dependency.name} (${condition})`,
+      inbound,
+    })
+  }
+
+  const chosen = byName.get(selected)
+  if (chosen === undefined) return []
+
+  // What it waited on.
+  for (const dep of chosen.dependsOn) {
+    const dependency = byName.get(dep.service)
+    if (dependency !== undefined) add(chosen, dependency, dep.condition, true)
+  }
+
+  // Whose start it pushed out. This is the direction a per-service table
+  // cannot show, and the reason a dead-time figure is worth more than the row
+  // it appears on.
+  for (const lane of lanes) {
+    if (lane.name === selected) continue
+    for (const dep of lane.dependsOn) {
+      if (dep.service === selected) add(lane, chosen, dep.condition, false)
+    }
+  }
+
+  return out
+}
 
 /** Tracks an element's content width so the scale is built from real pixels. */
 function useMeasuredWidth(): [React.RefObject<HTMLDivElement | null>, number] {
@@ -256,6 +344,14 @@ export function Timeline({ run, selected, onSelect }: TimelineProps) {
               />
             ))}
 
+          {measured && (
+            <EdgeLayer
+              edges={edgesTouching(run.lanes, selected)}
+              scale={scale}
+              height={run.lanes.length * (LANE_HEIGHT + LANE_GAP)}
+            />
+          )}
+
           {measured && drag !== null && (
             <div
               className="pointer-events-none absolute top-0 bottom-0 z-10 border-x border-foreground/40 bg-foreground/10"
@@ -364,6 +460,73 @@ function Ruler({
         </div>
       ))}
     </div>
+  )
+}
+
+/**
+ * The dependency edges, and the only part of the timeline drawn in SVG.
+ *
+ * Everything else is a rectangle a div does better; a curve between two
+ * arbitrary points is the one thing that genuinely needs path geometry.
+ */
+function EdgeLayer({
+  edges,
+  scale,
+  height,
+}: {
+  edges: Edge[]
+  scale: Scale
+  height: number
+}) {
+  if (edges.length === 0) return null
+
+  return (
+    <svg
+      className="pointer-events-none absolute inset-0 z-10 h-full w-full overflow-visible"
+      aria-hidden="true"
+    >
+      <defs>
+        <marker
+          id="edge-arrow"
+          markerWidth="5"
+          markerHeight="5"
+          refX="4"
+          refY="2.5"
+          orient="auto"
+        >
+          <path d="M0,0 L5,2.5 L0,5 z" fill="currentColor" />
+        </marker>
+      </defs>
+      {edges.map((edge, index) => {
+        const x1 = scale.x(edge.from.ms)
+        const y1 = laneCentre(edge.from.row)
+        const x2 = scale.x(edge.to.ms)
+        const y2 = laneCentre(edge.to.row)
+
+        // Control points pushed out horizontally rather than vertically, so
+        // the curve leaves the moment it depends on travelling along the time
+        // axis and cannot be mistaken for a span.
+        const bend = Math.max(12, Math.min(60, Math.abs(x2 - x1) / 2))
+
+        return (
+          <path
+            key={index}
+            d={`M${x1},${y1} C${x1 + bend},${y1} ${x2 - bend},${y2} ${x2},${y2}`}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1}
+            strokeDasharray={edge.inbound ? undefined : '3 2'}
+            markerEnd="url(#edge-arrow)"
+            className={
+              edge.inbound ? 'text-foreground/70' : 'text-muted-foreground/50'
+            }
+          >
+            <title>{edge.label}</title>
+          </path>
+        )
+      })}
+      <rect width="0" height={height} />
+    </svg>
   )
 }
 

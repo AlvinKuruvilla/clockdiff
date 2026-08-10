@@ -86,10 +86,26 @@ export interface Span {
   to: number | null
 }
 
+/**
+ * The recorded moments, in milliseconds from T0, with null for anything never
+ * observed. The spans above are differences between these; an edge between
+ * two services needs the moments themselves.
+ */
+export interface Moments {
+  created: number | null
+  started: number | null
+  predicateTrue: number | null
+  declaredHealthy: number | null
+  declaredUnhealthy: number | null
+  accepting: number | null
+  exited: number | null
+}
+
 export interface Lane {
   name: string
   outcome: Outcome
   spans: Span[]
+  moments: Moments
   dependsOn: WireDependency[]
   exitCode?: number
   crashLog?: string[]
@@ -124,6 +140,27 @@ export interface Run {
   lanes: Lane[]
   /** Up before the run began, so unmeasured. Listed, never drawn as a lane. */
   alreadyRunning: string[]
+}
+
+/**
+ * When a `depends_on` condition was satisfied, or null if it never was.
+ *
+ * Each condition is met by a different moment, and only one of them is the
+ * moment the service was actually ready: `service_healthy` waits for the
+ * healthcheck to be *declared* passing, which is exactly where the dead time
+ * accrues. `service_started` is met the instant the container starts, whether
+ * or not anything inside it is listening — which is why a stack can be
+ * reported up while nothing serves.
+ */
+export function conditionMetAt(lane: Lane, condition: Condition): number | null {
+  switch (condition) {
+    case 'service_healthy':
+      return lane.moments.declaredHealthy
+    case 'service_started':
+      return lane.moments.started
+    case 'service_completed_successfully':
+      return lane.moments.exited
+  }
 }
 
 export class UnsupportedFormatError extends Error {
@@ -248,6 +285,15 @@ function toLane(
     name: svc.name,
     outcome: svc.outcome,
     spans,
+    moments: {
+      created: created ?? null,
+      started: started ?? null,
+      predicateTrue: predicateTrue ?? null,
+      declaredHealthy: declaredHealthy ?? null,
+      declaredUnhealthy: declaredUnhealthy ?? null,
+      accepting: accepting ?? null,
+      exited: exited ?? null,
+    },
     dependsOn: svc.dependsOn ?? [],
     exitCode: svc.exitCode,
     crashLog: svc.crashLog,

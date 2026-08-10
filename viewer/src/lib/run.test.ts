@@ -8,6 +8,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
+  conditionMetAt,
   parseRun,
   UnsupportedFormatError,
   SUPPORTED_FORMAT_VERSION,
@@ -98,6 +99,38 @@ describe('cost', () => {
   it('reports no cost, rather than zero, for a service that never readied', () => {
     expect(lane('reports').readyMs).toBeNull()
     expect(lane('reports').ownMs).toBeNull()
+  })
+})
+
+describe('depends_on conditions', () => {
+  it('meets service_healthy when the check was declared passing, not when it passed', () => {
+    // The distinction is the whole finding: postgres was serving at 412ms and
+    // declared healthy at 5310ms, and it is the later moment that released
+    // anything waiting on it.
+    expect(conditionMetAt(lane('postgres'), 'service_healthy')).toBeCloseTo(5310)
+    expect(lane('postgres').moments.predicateTrue).toBeCloseTo(412)
+  })
+
+  it('meets service_started when the container started, ready or not', () => {
+    expect(conditionMetAt(lane('api'), 'service_started')).toBe(
+      lane('api').moments.started,
+    )
+  })
+
+  it('meets service_completed_successfully when the container exited', () => {
+    expect(conditionMetAt(lane('migrations'), 'service_completed_successfully'))
+      .toBeCloseTo(7120)
+  })
+
+  it('is unmet when the moment was never observed', () => {
+    // Nothing ever declared metrics healthy, so an edge waiting on it has no
+    // moment to start from and must not be drawn from a guess.
+    expect(conditionMetAt(lane('metrics'), 'service_healthy')).toBeNull()
+  })
+
+  it('releases a dependent no earlier than the condition was met', () => {
+    const gate = conditionMetAt(lane('postgres'), 'service_healthy')!
+    expect(lane('api').moments.started!).toBeGreaterThanOrEqual(gate)
   })
 })
 
