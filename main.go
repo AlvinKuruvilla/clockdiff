@@ -142,10 +142,11 @@ func resolveFiles(files []string) ([]string, error) {
 
 func newUpCommand() *cobra.Command {
 	var (
-		timeout time.Duration
-		project string
-		files   []string
-		asJSON  bool
+		timeout    time.Duration
+		project    string
+		files      []string
+		asJSON     bool
+		exportPath string
 	)
 
 	cmd := &cobra.Command{
@@ -179,6 +180,20 @@ func newUpCommand() *cobra.Command {
 				project = strings.ToLower(filepath.Base(dir))
 			}
 
+			// Exporting is not `--json > run.json`: the report still prints,
+			// and a run costs however long the stack takes to settle, so the
+			// two forms cannot be had by running it twice. Open the file
+			// before anything starts — a path that cannot be written should
+			// fail now, not after the wait.
+			var export *os.File
+			if exportPath != "" {
+				export, err = os.Create(exportPath)
+				if err != nil {
+					return err
+				}
+				defer export.Close()
+			}
+
 			cli, err := runtime.NewClient()
 			if err != nil {
 				return err
@@ -199,6 +214,17 @@ func newUpCommand() *cobra.Command {
 				} else {
 					report.WriteProfile(cmd.OutOrStdout(), run)
 				}
+
+				if export != nil {
+					if err := report.WriteJSON(export, run); err != nil {
+						return err
+					}
+					// Closed explicitly as well as deferred: a write that
+					// only fails on flush would otherwise be silent.
+					if err := export.Close(); err != nil {
+						return err
+					}
+				}
 			}
 			return observeErr
 		},
@@ -210,6 +236,8 @@ func newUpCommand() *cobra.Command {
 		"compose project name (default: the compose file's directory)")
 	cmd.Flags().BoolVar(&asJSON, "json", false,
 		"write the run as JSON instead of a report")
+	cmd.Flags().StringVar(&exportPath, "export-json", "",
+		"also write the run as JSON to this file, keeping the report on stdout")
 	addFileFlag(cmd, &files)
 
 	return cmd

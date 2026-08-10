@@ -100,11 +100,18 @@ go install github.com/AlvinKuruvilla/clockdiff@latest
 
 ## Saving a run
 
-`clockdiff up --json` writes the run instead of reporting it:
+`clockdiff up --json` writes the run instead of reporting it, and
+`--export-json` writes it to a file while the report still prints:
 
 ```sh
-clockdiff up --json > run.json
+clockdiff up --json > run.json          # the run, nothing else
+clockdiff up --export-json run.json     # the report, and the run on disk
 ```
+
+Prefer `--export-json` when you want both. A run costs whatever the stack
+takes to settle and its timings are not reproducible, so the second form
+cannot be had by running it again. The file is created before any container
+starts, so an unwritable path fails immediately rather than after the wait.
 
 Timestamps are absolute and unrounded, and no derived duration is stored —
 dead time, boot time and how long a dependent was held are all differences
