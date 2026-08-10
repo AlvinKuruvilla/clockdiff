@@ -71,6 +71,10 @@ viewer-build:
 viewer-check:
     cd viewer && ./node_modules/.bin/tsc -b
 
+# Run the viewer's tests
+viewer-test *args:
+    cd viewer && ./node_modules/.bin/vitest run {{ args }}
+
 # Assert the committed bundle is what the current source builds
 viewer-fresh: viewer-build
     #!/usr/bin/env bash
@@ -82,7 +86,7 @@ viewer-fresh: viewer-build
     fi
 
 # What CI runs
-ci: lint test viewer-check viewer-fresh
+ci: lint test viewer-check viewer-test viewer-fresh
 
 clean:
     rm -rf tmp

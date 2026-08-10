@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -10,5 +11,12 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: { '@': new URL('./src', import.meta.url).pathname },
+  },
+  test: {
+    // Everything under test is pure: the derivation from a run file and the
+    // zoom arithmetic. Neither needs a DOM, and asking for one would make the
+    // suite slower and its failures less direct.
+    environment: 'node',
+    include: ['src/**/*.test.ts'],
   },
 })

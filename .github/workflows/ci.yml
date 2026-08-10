@@ -37,6 +37,11 @@ jobs:
       - run: ./node_modules/.bin/tsc -b
         working-directory: viewer
 
+      # The derivation's domain rules and the zoom arithmetic. Both are pure,
+      # and both have already shipped a bug that typechecking could not see.
+      - run: npm test
+        working-directory: viewer
+
       # `viewer/dist` is committed because //go:embed needs it at compile time
       # and `go install ...@latest` sees only what is checked in. A fresh
       # checkout has no Vite cache, so this build is cold and reproducible;

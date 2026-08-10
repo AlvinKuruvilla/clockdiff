@@ -27,5 +27,9 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  // Tests are checked by tsconfig.test.json, which is the only project that
+  // gets Node's types. Keeping them out of here is what stops a component
+  // importing node:fs and still typechecking.
+  "exclude": ["src/**/*.test.ts"]
 }
