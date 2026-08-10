@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/moby/moby/api/pkg/stdcopy"
+	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 )
@@ -117,4 +118,12 @@ func waitAccepting(ctx context.Context, cli *client.Client, containerID string, 
 			}
 		}
 	}
+}
+
+// sharesNetworkNamespace reports a container that has no network namespace of
+// its own — compose's `network_mode: service:x`, which the daemon records as
+// `container:<id>`. Its /proc/net/tcp is the other container's, so no listener
+// found there belongs to it.
+func sharesNetworkNamespace(hostConfig *container.HostConfig) bool {
+	return hostConfig != nil && hostConfig.NetworkMode.IsContainer()
 }

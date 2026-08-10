@@ -194,7 +194,15 @@ func probeService(ctx context.Context, cli *client.Client, containerID, service 
 	if config.Healthcheck != nil {
 		argv = probeArgv(config.Healthcheck.Test)
 	}
-	ports := declaredPorts(config.ExposedPorts)
+
+	// A container sharing another's network namespace — compose's
+	// `network_mode: service:x` — reads that container's socket table as its
+	// own. Probing it would report a neighbour's listener as this service's
+	// readiness, and usually earlier than the truth.
+	var ports map[uint16]bool
+	if !sharesNetworkNamespace(got.Container.HostConfig) {
+		ports = declaredPorts(config.ExposedPorts)
+	}
 
 	result.hasHealthcheck = argv != nil
 	result.expectsPort = len(ports) > 0
