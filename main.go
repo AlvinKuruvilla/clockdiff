@@ -34,6 +34,7 @@ func main() {
 	}
 	root.AddCommand(newCheckCommand())
 	root.AddCommand(newUpCommand())
+	root.AddCommand(newViewCommand())
 
 	err := root.Execute()
 	if err == nil {

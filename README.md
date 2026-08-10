@@ -120,6 +120,27 @@ writer. The file carries a `version`, because the point of writing runs down
 is that whatever reads them can be replaced without touching what produces
 them.
 
+## Viewing a run
+
+`clockdiff view` serves a run file as a timeline and opens it:
+
+```sh
+clockdiff up --export-json run.json
+clockdiff view run.json
+```
+
+The lanes show where each service's startup went, and the table ranks them by
+how much of the wall clock they are on the hook for — including everything
+they waited on, which is the ordering a per-service duration cannot give you.
+Only quantization is coloured as recoverable: a service that probed until it
+timed out spent that time unrecoverably and is drawn striped, not as waste.
+
+The viewer ships inside the binary, so there is nothing to install and it
+works over SSH to a machine running the stack. The run is re-read on each
+request, so re-running the stack and refreshing shows the new measurements.
+`--http` picks the address, and `--browser=false` prints the URL instead of
+opening one.
+
 ## Naming the files
 
 Both subcommands take compose files three ways:
